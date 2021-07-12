@@ -6,13 +6,13 @@ from datetime import datetime
 import os
 import sys
 from collections import OrderedDict
+
 sys.path.append('./')
 # PyTorch includes
 import torch
 from torch.autograd import Variable
 from torchvision import transforms
 import cv2
-
 
 # Custom includes
 from networks import deeplab_xception_transfer, graph
@@ -22,9 +22,10 @@ from dataloaders import custom_transforms as tr
 import argparse
 import torch.nn.functional as F
 
-label_colours = [(0,0,0)
-                , (128,0,0), (255,0,0), (0,85,0), (170,0,51), (255,85,0), (0,0,85), (0,119,221), (85,85,0), (0,85,85), (85,51,0), (52,86,128), (0,128,0)
-                , (0,0,255), (51,170,221), (0,255,255), (85,255,170), (170,255,85), (255,255,0), (255,170,0)]
+label_colours = [(0, 0, 0)
+    , (128, 0, 0), (255, 0, 0), (0, 85, 0), (170, 0, 51), (255, 85, 0), (0, 0, 85), (0, 119, 221), (85, 85, 0),
+                 (0, 85, 85), (85, 51, 0), (52, 86, 128), (0, 128, 0)
+    , (0, 0, 255), (51, 170, 221), (0, 255, 255), (85, 255, 170), (170, 255, 85), (255, 255, 0), (255, 170, 0)]
 
 
 def flip(x, dim):
@@ -32,6 +33,7 @@ def flip(x, dim):
     indices[dim] = torch.arange(x.size(dim) - 1, -1, -1,
                                 dtype=torch.long, device=x.device)
     return x[tuple(indices)]
+
 
 def flip_cihp(tail_list):
     '''
@@ -49,10 +51,10 @@ def flip_cihp(tail_list):
     tail_list_rev[17] = tail_list[16].unsqueeze(0)
     tail_list_rev[18] = tail_list[19].unsqueeze(0)
     tail_list_rev[19] = tail_list[18].unsqueeze(0)
-    return torch.cat(tail_list_rev,dim=0)
+    return torch.cat(tail_list_rev, dim=0)
 
 
-def decode_labels(mask, num_images=1, num_classes=20):
+def decode_labels(mask, img_path, num_images=1, num_classes=20):
     """Decode batch of segmentation masks.
 
     Args:
@@ -65,8 +67,14 @@ def decode_labels(mask, num_images=1, num_classes=20):
     """
     n, h, w = mask.shape
     assert (n >= num_images), 'Batch size %d should be greater or equal than number of images to save %d.' % (
-    n, num_images)
+        n, num_images)
     outputs = np.zeros((num_images, h, w, 3), dtype=np.uint8)
+
+    color_of_pixels_with_shirt = list()
+    im = Image.open(
+        img_path)  # Can be many different formats.
+    pix = im.load()
+
     for i in range(num_images):
         img = Image.new('RGB', (len(mask[i, 0]), len(mask[i])))
         pixels = img.load()
@@ -74,18 +82,24 @@ def decode_labels(mask, num_images=1, num_classes=20):
             for k_, k in enumerate(j):
                 if k < num_classes:
                     pixels[k_, j_] = label_colours[k]
+                    if (k in [5, 6, 7, 10]):
+                        color_of_pixels_with_shirt.append(pix[k_, j_])
         outputs[i] = np.array(img)
+    print([sum(ele) / len(color_of_pixels_with_shirt) for ele in zip(*color_of_pixels_with_shirt)])
     return outputs
+
 
 def read_img(img_path):
     _img = Image.open(img_path).convert('RGB')  # return is RGB pic
     return _img
+
 
 def img_transform(img, transform=None):
     sample = {'image': img, 'label': 0}
 
     sample = transform(sample)
     return sample
+
 
 def inference(net, img_path='', output_path='./', output_name='f', use_gpu=True):
     '''
@@ -160,24 +174,28 @@ def inference(net, img_path='', output_path='./', output_name='f', use_gpu=True)
                 outputs_final = outputs.clone()
     ################ plot pic
     predictions = torch.max(outputs_final, 1)[1]
+    # print("pred", predictions)
     results = predictions.cpu().numpy()
-    vis_res = decode_labels(results)
+    # print("results", results)
+    vis_res = decode_labels(results, img_path)
+    # print("vis_res", vis_res)
 
     parsing_im = Image.fromarray(vis_res[0])
-    parsing_im.save(output_path+'/{}.png'.format(output_name))
-    cv2.imwrite(output_path+'/{}_gray.png'.format(output_name), results[0, :, :])
+    parsing_im.save(output_path + '/{}.png'.format(output_name))
+    cv2.imwrite(output_path + '/{}_gray.png'.format(output_name), results[0, :, :])
 
     end_time = timeit.default_timer()
     print('time used for the multi-scale image inference' + ' is :' + str(end_time - start_time))
+
 
 if __name__ == '__main__':
     '''argparse begin'''
     parser = argparse.ArgumentParser()
     # parser.add_argument('--loadmodel',default=None,type=str)
     parser.add_argument('--loadmodel', default='', type=str)
-    parser.add_argument('--img_path', default='', type=str)
+    parser.add_argument('--img_dir', default='', type=str)
     parser.add_argument('--output_path', default='', type=str)
-    parser.add_argument('--output_name', default='', type=str)
+    # parser.add_argument('--output_name', default='', type=str)
     parser.add_argument('--use_gpu', default=1, type=int)
     opts = parser.parse_args()
 
@@ -192,12 +210,19 @@ if __name__ == '__main__':
         print('no model load !!!!!!!!')
         raise RuntimeError('No model!!!!')
 
-    if opts.use_gpu >0 :
+    if opts.use_gpu > 0:
         net.cuda()
         use_gpu = True
     else:
         use_gpu = False
         raise RuntimeError('must use the gpu!!!!')
 
-    inference(net=net, img_path=opts.img_path,output_path=opts.output_path , output_name=opts.output_name, use_gpu=use_gpu)
+    import os
+    from os import listdir
+    from os.path import isfile, join
+
+    onlyfiles = [f for f in listdir(opts.img_dir) if isfile(join(opts.img_dir, f))]
+    for file in onlyfiles:
+        inference(net=net, img_path=opts.img_dir + '/' + file, output_path=opts.output_path, output_name=file + '_out',
+                  use_gpu=use_gpu)
 
