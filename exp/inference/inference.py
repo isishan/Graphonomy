@@ -83,9 +83,10 @@ def decode_labels(mask, img_path, num_images=1, num_classes=20):
                 if k < num_classes:
                     pixels[k_, j_] = label_colours[k]
                     if (k in [5, 6, 7, 10]):
-                        color_of_pixels_with_shirt.append(pix[k_, j_])
+                        color_of_pixels_with_shirt.append([k_, j_])
         outputs[i] = np.array(img)
-    print([sum(ele) / len(color_of_pixels_with_shirt) for ele in zip(*color_of_pixels_with_shirt)])
+    # print([sum(ele) / len(color_of_pixels_with_shirt) for ele in zip(*color_of_pixels_with_shirt)])
+    print(bounding_box(color_of_pixels_with_shirt))
     return outputs
 
 
@@ -226,3 +227,7 @@ if __name__ == '__main__':
         inference(net=net, img_path=opts.img_dir + '/' + file, output_path=opts.output_path, output_name=file + '_out',
                   use_gpu=use_gpu)
 
+def bounding_box(points):
+    x_coordinates, y_coordinates = zip(*points)
+
+    return [(min(x_coordinates), min(y_coordinates)), (max(x_coordinates), max(y_coordinates))]
