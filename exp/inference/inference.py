@@ -1,3 +1,4 @@
+from __future__ import print_function
 import socket
 import timeit
 import numpy as np
@@ -17,6 +18,7 @@ import cv2
 # Custom includes
 from networks import deeplab_xception_transfer, graph
 from dataloaders import custom_transforms as tr
+from scipy.spatial import KDTree
 
 #
 import argparse
@@ -53,6 +55,39 @@ def flip_cihp(tail_list):
     tail_list_rev[19] = tail_list[18].unsqueeze(0)
     return torch.cat(tail_list_rev, dim=0)
 
+def bounding_box(points):
+    x_coordinates, y_coordinates = zip(*points)
+
+    return [(min(x_coordinates), min(y_coordinates)), (max(x_coordinates), max(y_coordinates))]
+
+def get_nearest_simple_color_rgb(rgb):
+  names = ['Red', 'Red', 'White', 'Black', 'Green', 'Blue', 'Yellow', 'Aqua', 'Magenta', 'Brown', 'Gray']
+  positions = [(255,0,0), (128, 0, 0), (255,255,255), (0,0,0), (0,255,0), (0,0,255), (255,255,0), (0,255,255), (255,0,255), (170,110,140), (128,128,128)]
+  spacedb = KDTree(positions)
+  querycolor = rgb
+  dist, index = spacedb.query(querycolor)
+  # print('The color %r is closest to %s.'%(querycolor, names[index]))
+  return positions[index], names[index]
+  # print('The color %r is closest to %s.'%(querycolor, names[index]))
+
+
+def dominant_color(pixels, img_path):
+  nearest_colors_list = list()
+  im = Image.open(img_path)
+  pix = im.load()
+  for i in pixels:
+      actual_color = pix[i[0],i[1]]
+      nearest_colors_list.append(get_nearest_simple_color_rgb(actual_color)[0])
+  freq = {}
+  for item in nearest_colors_list:
+      if (item in freq):
+          freq[item] += 1
+      else:
+          freq[item] = 1
+  print(freq)
+  freq = sorted(freq, key=freq.get, reverse=True)
+  return freq[0], freq[1], freq[2]
+
 
 def decode_labels(mask, img_path, num_images=1, num_classes=20):
     """Decode batch of segmentation masks.
@@ -70,7 +105,7 @@ def decode_labels(mask, img_path, num_images=1, num_classes=20):
         n, num_images)
     outputs = np.zeros((num_images, h, w, 3), dtype=np.uint8)
 
-    color_of_pixels_with_shirt = list()
+    pixels_with_shirt = list()
     im = Image.open(
         img_path)  # Can be many different formats.
     pix = im.load()
@@ -83,12 +118,42 @@ def decode_labels(mask, img_path, num_images=1, num_classes=20):
                 if k < num_classes:
                     pixels[k_, j_] = label_colours[k]
                     if (k in [5, 6, 7, 10]):
-                        color_of_pixels_with_shirt.append([k_, j_])
+                        pixels_with_shirt.append([k_, j_])
         outputs[i] = np.array(img)
     # print([sum(ele) / len(color_of_pixels_with_shirt) for ele in zip(*color_of_pixels_with_shirt)])
-    print(bounding_box(color_of_pixels_with_shirt))
+    dominant_color_rgb = dominant_color(pixels_with_shirt, img_path)
+    print("dominant_color_rgb", dominant_color_rgb)
+    print(get_nearest_simple_color_rgb(dominant_color_rgb[0]))
+    print(get_nearest_simple_color_rgb(dominant_color_rgb[1]))
+    print(get_nearest_simple_color_rgb(dominant_color_rgb[2]))
+
+    coords = (bounding_box(pixels_with_shirt))
+    # print(coords)
+    print_pic(coords, img_path, dominant_color_rgb)
     return outputs
 
+def print_pic(coords, img_path, colors):
+  import matplotlib.pyplot as plt
+  import matplotlib.patches as patches
+  from PIL import Image
+
+  im = Image.open(img_path)
+
+  # Create figure and axes
+  fig, ax = plt.subplots()
+
+  # Display the image
+  ax.imshow(im)
+
+  # Create a Rectangle patch
+  rect = patches.Rectangle(coords[0], coords[1][0] - coords[0][0], coords[1][1] - coords[0][1], linewidth=1, edgecolor='r', facecolor='none')
+
+  # Add the patch to the Axes
+  ax.add_patch(rect)
+  colors = [get_nearest_simple_color_rgb(x)[1] for x in colors]
+  ax.annotate(str(colors), coords[0], color='black', weight='bold', fontsize=10, ha='center', va='center')
+  plt.savefig(img_path[:-3]+'new.png' ,dpi=300, bbox_inches = "tight")
+  plt.show()
 
 def read_img(img_path):
     _img = Image.open(img_path).convert('RGB')  # return is RGB pic
@@ -167,7 +232,8 @@ def inference(net, img_path='', output_path='./', output_name='f', use_gpu=True)
             outputs = net.forward(inputs, adj1_test.cuda(), adj3_test.cuda(), adj2_test.cuda())
             outputs = (outputs[0] + flip(flip_cihp(outputs[1]), dim=-1)) / 2
             outputs = outputs.unsqueeze(0)
-
+            # print((outputs.size()))
+            # print(outputs)
             if iii > 0:
                 outputs = F.upsample(outputs, size=(h, w), mode='bilinear', align_corners=True)
                 outputs_final = outputs_final + outputs
@@ -175,15 +241,18 @@ def inference(net, img_path='', output_path='./', output_name='f', use_gpu=True)
                 outputs_final = outputs.clone()
     ################ plot pic
     predictions = torch.max(outputs_final, 1)[1]
+    # print("Size", torch.Size(predictions))
     # print("pred", predictions)
     results = predictions.cpu().numpy()
+    # print("Results", results)
+    # print("Size", results.shape)
     # print("results", results)
     vis_res = decode_labels(results, img_path)
     # print("vis_res", vis_res)
 
     parsing_im = Image.fromarray(vis_res[0])
     parsing_im.save(output_path + '/{}.png'.format(output_name))
-    cv2.imwrite(output_path + '/{}_gray.png'.format(output_name), results[0, :, :])
+    # cv2.imwrite(output_path + '/{}_gray.png'.format(output_name), results[0, :, :])
 
     end_time = timeit.default_timer()
     print('time used for the multi-scale image inference' + ' is :' + str(end_time - start_time))
@@ -226,8 +295,3 @@ if __name__ == '__main__':
     for file in onlyfiles:
         inference(net=net, img_path=opts.img_dir + '/' + file, output_path=opts.output_path, output_name=file + '_out',
                   use_gpu=use_gpu)
-
-def bounding_box(points):
-    x_coordinates, y_coordinates = zip(*points)
-
-    return [(min(x_coordinates), min(y_coordinates)), (max(x_coordinates), max(y_coordinates))]
