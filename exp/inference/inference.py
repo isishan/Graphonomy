@@ -121,15 +121,15 @@ def decode_labels(mask, img_path, num_images=1, num_classes=20):
                         pixels_with_shirt.append([k_, j_])
         outputs[i] = np.array(img)
     # print([sum(ele) / len(color_of_pixels_with_shirt) for ele in zip(*color_of_pixels_with_shirt)])
-    dominant_color_rgb = dominant_color(pixels_with_shirt, img_path)
-    print("dominant_color_rgb", dominant_color_rgb)
-    print(get_nearest_simple_color_rgb(dominant_color_rgb[0]))
-    print(get_nearest_simple_color_rgb(dominant_color_rgb[1]))
-    print(get_nearest_simple_color_rgb(dominant_color_rgb[2]))
-
-    coords = (bounding_box(pixels_with_shirt))
-    # print(coords)
-    print_pic(coords, img_path, dominant_color_rgb)
+    # dominant_color_rgb = dominant_color(pixels_with_shirt, img_path)
+    # print("dominant_color_rgb", dominant_color_rgb)
+    # print(get_nearest_simple_color_rgb(dominant_color_rgb[0]))
+    # print(get_nearest_simple_color_rgb(dominant_color_rgb[1]))
+    # print(get_nearest_simple_color_rgb(dominant_color_rgb[2]))
+    #
+    # coords = (bounding_box(pixels_with_shirt))
+    # # print(coords)
+    # print_pic(coords, img_path, dominant_color_rgb)
     return outputs
 
 def print_pic(coords, img_path, colors):
